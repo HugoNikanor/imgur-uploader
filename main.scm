@@ -1,3 +1,7 @@
+#!/usr/bin/guile \
+-e main -s
+!#
+
 (use-modules (ice-9 match)
              (ice-9 popen)
              (ice-9 rdelim)
@@ -15,22 +19,33 @@
 
 (define *config-dir* "/home/hugo/.cache/imgur-uploader/")
 
-(define (curl-str url type . args)
+(define (base64-encode file-path)
+  (read-string
+    (open-input-pipe
+      (string-append "base64 -w0 "
+                     file-path))))
+
+(define (curl-str url type headers . args)
   "Takes a number of parameters and creates a curl command
   string to be run through a system call"
   (string-join
-    (cons
-      (format #f "curl --url ~a --request ~a" url type)
+    (append
+      (list (format #f "curl --url ~a --request ~a" url type))
+      (map (match-lambda
+             ((type key value)
+              (format #f "--header \"~a: ~a ~a\"" type key value)))
+           headers)
       (map (match-lambda
              ((key value)
               (format #f "--form '~a=~a'"
-                      key value)))
+                      key value))
+             (#f ""))
            args))
     " "))
 
-(define (curl url type . args)
+(define (curl url type headers . args)
   "Same as curl-str, but it also calls it"
-  (let ((str (apply curl-str url type args)))
+  (let ((str (apply curl-str url type headers args)))
     (display str) (newline)
     (let ((pipe (open-input-pipe str)))
       (read-string pipe))))
@@ -41,18 +56,36 @@
 ;;; https://api.imgur.com/oauth2/authorize
 ;;; https://api.imgur.com/oauth2/token
 
+;;; (define get-resp (compose cdar cddr xml->sxml))
+(define (get-resp xml)
+  (cdar (cddr (xml->sxml xml))))
+
 (define (generate-access-token! refresh-token)
+  "Returns the XML respones from requesting a token"
   (curl "https://api.imgur.com/oauth2/token.xml"
         'POST
+        '()
         `(refresh_token ,refresh-token)
         `(client_id ,*client-id*)
         `(client_secret ,*client-secret*)
         '(grant_type refresh_token)
         ))
 
-
-(define *access-token* #f)
-(define *refresh-token* #f)
+(define* (uppload-image! access-token file-contents-base-64
+                         #:key
+                         (title #f)
+                         (description #f))
+         "Uploads an image, and returns the xml response"
+         (curl "https://api.imgur.com/3/image.xml"
+               'POST
+               `(;(authorization "Client-ID" ,*client-id*)
+                 (authorization "Bearer" ,access-token)
+                 ;(content-type "multipart/form-data;" "boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW")
+                 )
+               ;;'(type gif)
+               `(image ,file-contents-base-64)
+               (if title `(title ,title) #f)
+               (if description `(description ,description) #f)))
 
 (define (fragment-translate-handler response body)
   "Very simple web handler which makes fragments queries"
@@ -70,7 +103,7 @@
                (script "window.location.href = window.location.href.replace('#', '?')"))))))))
 
 (define (handler response body)
-  "Handler for capturing request-token
+  "Handler for capturing refresh-token
   Also prints it, should probably warn about that"
   (let* ((fragment (uri-query (request-uri response)))
          (pfrag (map (cut string-split <> #\=)
@@ -100,7 +133,7 @@
 ;; ("account_username" "HugoNikanor")
 ;; ("account_id" "********")
 ;; )
-(define (get-request-token!)
+(define (get-refresh-token!)
   "Opens a web browser which queries the user if they want to accpept
   the application. Returns authentication information.
 
@@ -109,3 +142,54 @@
 "https://api.imgur.com/oauth2/authorize?client_id=5468b576f6e86fa\\&response_type=token")
                        " "))
   (run-oneshot-auth-server!))
+
+(define *cache-dir* "/home/hugo/.cache/imgur-uploader")
+(define *cache-file* (string-append *cache-dir* "/file.scm"))
+
+(define (string-read str)
+  (with-input-from-string str
+    (lambda () (read))))
+
+(define (make-timestamp-absolute! alist)
+  (let ((key "expires_in"))
+    (assoc-set!
+      alist key
+      (list (+ (current-time)
+               (string-read (car (assoc-ref alist key))))))))
+
+(define (main args)
+  (when (not (access? *cache-dir* F_OK))
+    (mkdir *cache-dir*)
+    (chmod *cache-dir* #o700))
+
+  ;; TODO check for file there but now readable
+  (when (not (access? *cache-file* F_OK))
+    (with-output-to-file
+      *cache-file*
+      (lambda ()
+        (write
+          (make-timestamp-absolute!
+            (get-refresh-token!)))))
+    (chmod *cache-file* #o600))
+
+  (let ((alist (read (open-input-file *cache-file*))))
+    (when (> (current-time)
+             (car (assoc-ref alist "expires_in")))
+      (with-output-to-file
+        *cache-file*
+        (lambda ()
+          (write
+            (make-timestamp-absolute!
+              (get-resp (generate-access-token! (car (assoc-ref alist "refresh_token"))))))))))
+
+  ;; TODO full command line handling
+  ;; should support
+  ;; - name
+  ;; - title
+  ;; - description
+  (let ((alist (read (open-input-file *cache-file*))))
+    (write
+      (uppload-image!
+        (car
+          (assoc-ref alist "access_token"))
+        (base64-encode (cadr args))))))
