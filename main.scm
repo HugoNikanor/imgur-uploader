@@ -5,6 +5,7 @@
 (use-modules (ice-9 match)
              (ice-9 popen)
              (ice-9 rdelim)
+             (ice-9 getopt-long)
 
              (srfi srfi-26)
 
@@ -71,7 +72,7 @@
         '(grant_type refresh_token)
         ))
 
-(define* (uppload-image! access-token file-contents-base-64
+(define* (uppload-image! access-token at-filename
                          #:key
                          (title #f)
                          (description #f))
@@ -83,7 +84,7 @@
                  ;(content-type "multipart/form-data;" "boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW")
                  )
                ;;'(type gif)
-               `(image ,file-contents-base-64)
+               `(image ,at-filename)
                (if title `(title ,title) #f)
                (if description `(description ,description) #f)))
 
@@ -157,6 +158,11 @@
       (list (+ (current-time)
                (string-read (car (assoc-ref alist key))))))))
 
+(define option-spec
+  '((image (single-char #\i) (value #t))
+    (title (single-char #\t) (value #t))
+    (description (single-char #\d) (value #t))))
+
 (define (main args)
   (when (not (access? *cache-dir* F_OK))
     (mkdir *cache-dir*)
@@ -188,8 +194,14 @@
   ;; - title
   ;; - description
   (let ((alist (read (open-input-file *cache-file*))))
+    (let ((options (getopt-long args option-spec)))
     (write
       (uppload-image!
-        (car
-          (assoc-ref alist "access_token"))
-        (base64-encode (cadr args))))))
+        (car (assoc-ref alist "access_token"))
+        (string-append "@"
+                       (option-ref options
+                                   'image
+                                   (car (option-ref options '() ""))))
+        #:title (option-ref options 'title "")
+        #:description (option-ref options 'description "")
+        )))))
