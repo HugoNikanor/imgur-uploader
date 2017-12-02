@@ -155,6 +155,11 @@
     (title (single-char #\t) (value #t))
     (description (single-char #\d) (value #t))))
 
+(define (xml-get-link xml)
+  "Get link from image upload"
+  (car (assoc-ref (cddar (cddr (xml->sxml xml)))
+                  'link)))
+
 (define (main args)
 
   ;; Ensure directory
@@ -190,13 +195,16 @@
       (let ((options (getopt-long args option-spec)))
         (if (option-ref options 'help #f)
           (print-help)
-          (write
-            (uppload-image!
-              (car (assoc-ref alist "access_token"))
-              (string-append "@"
-                             (option-ref options
-                                         'image
-                                         (car (option-ref options '() ""))))
-              #:title (option-ref options 'title "")
-              #:description (option-ref options 'description "")
-              )))))))
+          (begin
+            (display
+              (xml-get-link
+                (uppload-image!
+                  (car (assoc-ref alist "access_token"))
+                  (string-append "@"
+                                 (option-ref options
+                                             'image
+                                             (car (option-ref options '() ""))))
+                  #:title (option-ref options 'title "")
+                  #:description (option-ref options 'description "")
+                  )))
+            (newline)))))))
