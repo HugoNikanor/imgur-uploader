@@ -145,8 +145,13 @@
       (list (+ (current-time)
                (string-read (car (assoc-ref alist key))))))))
 
+(define (print-help)
+  (display "There is no help")
+  (newline))
+
 (define option-spec
-  '((image (single-char #\i) (value #t))
+  '((help (single-char #\h) (value #f))
+    (image (single-char #\i) (value #t))
     (title (single-char #\t) (value #t))
     (description (single-char #\d) (value #t))))
 
@@ -179,15 +184,19 @@
             (make-timestamp-absolute!
               (get-resp (generate-access-token! (car (assoc-ref alist "refresh_token"))))))))))
 
-  (let ((alist (read (open-input-file *cache-file*))))
-    (let ((options (getopt-long args option-spec)))
-    (write
-      (uppload-image!
-        (car (assoc-ref alist "access_token"))
-        (string-append "@"
-                       (option-ref options
-                                   'image
-                                   (car (option-ref options '() ""))))
-        #:title (option-ref options 'title "")
-        #:description (option-ref options 'description "")
-        )))))
+  (if (= 1 (length args))
+    (print-help)
+    (let ((alist (read (open-input-file *cache-file*))))
+      (let ((options (getopt-long args option-spec)))
+        (if (option-ref options 'help #f)
+          (print-help)
+          (write
+            (uppload-image!
+              (car (assoc-ref alist "access_token"))
+              (string-append "@"
+                             (option-ref options
+                                         'image
+                                         (car (option-ref options '() ""))))
+              #:title (option-ref options 'title "")
+              #:description (option-ref options 'description "")
+              )))))))
