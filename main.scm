@@ -18,14 +18,6 @@
 (define *client-id* "5468b576f6e86fa")
 (define *client-secret* "500d0dd980a6b763a94c8e79261b5326f0354cd4")
 
-(define *config-dir* "/home/hugo/.cache/imgur-uploader/")
-
-(define (base64-encode file-path)
-  (read-string
-    (open-input-pipe
-      (string-append "base64 -w0 "
-                     file-path))))
-
 (define (curl-str url type headers . args)
   "Takes a number of parameters and creates a curl command
   string to be run through a system call"
@@ -51,15 +43,7 @@
     (let ((pipe (open-input-pipe str)))
       (read-string pipe))))
 
-;;; put .xml at end for xml respones
-
-;;; https://api.imgur.com/oauth2/addclient
-;;; https://api.imgur.com/oauth2/authorize
-;;; https://api.imgur.com/oauth2/token
-
-;;; (define get-resp (compose cdar cddr xml->sxml))
-(define (get-resp xml)
-  (cdar (cddr (xml->sxml xml))))
+(define get-resp (compose cdar cddr xml->sxml))
 
 (define (generate-access-token! refresh-token)
   "Returns the XML respones from requesting a token"
@@ -152,6 +136,9 @@
     (lambda () (read))))
 
 (define (make-timestamp-absolute! alist)
+  "Takes a alist with the key expires_in with a epoch timestamp as a list as
+  its cdr. And returns the same alist (also modifies input) where the cdr now
+  is (current-timestamp) + old value as a number"
   (let ((key "expires_in"))
     (assoc-set!
       alist key
@@ -164,11 +151,14 @@
     (description (single-char #\d) (value #t))))
 
 (define (main args)
+
+  ;; Ensure directory
   (when (not (access? *cache-dir* F_OK))
     (mkdir *cache-dir*)
     (chmod *cache-dir* #o700))
 
   ;; TODO check for file there but now readable
+  ;; Ensure file
   (when (not (access? *cache-file* F_OK))
     (with-output-to-file
       *cache-file*
@@ -178,6 +168,7 @@
             (get-refresh-token!)))))
     (chmod *cache-file* #o600))
 
+  ;; Ensure up to date tokens
   (let ((alist (read (open-input-file *cache-file*))))
     (when (> (current-time)
              (car (assoc-ref alist "expires_in")))
@@ -188,11 +179,6 @@
             (make-timestamp-absolute!
               (get-resp (generate-access-token! (car (assoc-ref alist "refresh_token"))))))))))
 
-  ;; TODO full command line handling
-  ;; should support
-  ;; - name
-  ;; - title
-  ;; - description
   (let ((alist (read (open-input-file *cache-file*))))
     (let ((options (getopt-long args option-spec)))
     (write
