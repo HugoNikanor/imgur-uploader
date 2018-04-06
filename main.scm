@@ -146,8 +146,10 @@
                (string-read (car (assoc-ref alist key))))))))
 
 (define (print-help)
-  (display "There is no help")
-  (newline))
+  (display "Usage:") (newline)
+  (display "-h for this help") (newline)
+  (display "-t for title, -d for description") (newline)
+  (display "arg without flag for image file") (newline))
 
 (define option-spec
   '((help (single-char #\h) (value #f))
